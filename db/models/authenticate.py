@@ -12,5 +12,4 @@ class UserPassword(User):
 
 class NewPassword(BaseModel):
 
-    username: str
     new_password: str

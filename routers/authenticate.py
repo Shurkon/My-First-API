@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 # Sensitive data (I would place this in the environment variables)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_DURATION = 30
-SECRET = "80c3b395483a4255b2a18c42d5b61523a541fadfdc60dc6ef55daca790115f90"
+SECRET = "YOUR_SECRET"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -24,6 +24,7 @@ router = APIRouter(
 )
 
 
+# Check JWT
 def current_user(token: str = Depends(oauth2)):
 
     exception = HTTPException(
@@ -42,7 +43,14 @@ def current_user(token: str = Depends(oauth2)):
     except JWTError:
 
         raise exception
+    
 
+    user = db_client["users"]["users"].find_one(
+        {"username": username},
+        {"username": 1, "password": 1}  # Devuelve solo lo necesario
+    )
+    
+    return user
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -50,7 +58,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
-
 
 
 
@@ -108,17 +115,34 @@ async def register(user: UserPassword):
 
 
 
-# CHANGE PASSWORD (Quizas pueda usar el nombre del token) (Implementar un sistema para introducir el password otra vez)
+# CHANGE PASSWORD
 @router.patch("/changepassword/")
-async def changepassword(data: NewPassword, user: User = Depends(current_user)):
+async def changepassword(data: NewPassword, user: dict = Depends(current_user)):
 
-
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
     hashed = hash_password(data.new_password)
 
     db_client["users"]["users"].update_one(
-    {"username": data.username},
-    {"$set": {"password": hashed}})
+        {"username": user["username"]},
+        {"$set": {"password": hashed}}
+    )
+    return {"detail": "Password updated"}
+
 
 
 
 # DELETE USER (and tasks)
+@router.delete("/deleteaccount/")
+async def deleteaccount(user: User = Depends(current_user)):
+
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db_client["users"]["users"].delete_one({"username": user["username"]})
+
+    db_client["tasks"]["tasks"].delete_many({"owner": user["username"]})
+
+    return {"deleted_account": user["username"]}
+

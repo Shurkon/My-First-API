@@ -22,25 +22,39 @@ async def show_tasks(
     filter: Optional[List[str]] = Query(default=None),
     user: dict = Depends(current_user)
 ):
+    
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     if not filter:
-        return task_schemas(db_client["tasks"]["tasks"].find())
+        return task_schemas(db_client["tasks"]["tasks"].find({"owner": user["username"]}))
 
 
     tags = []
     for f in filter:
         tags.extend(f.split(","))
 
-    return task_schemas(db_client["tasks"]["tasks"].find({"tags": {"$in": tags}}))
+    return task_schemas(db_client["tasks"]["tasks"].find({
+        "owner": user["username"],
+        "tags": {"$in": tags}
+        })
+        )
 
 
 # POST
 @router.post("/task/", response_model=Task)
-async def new_task(task: Task):
+async def new_task(
+    task: Task,
+    user: dict = Depends(current_user)          
+):
 
-    # Must be a unique title
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     
-    existing_task = db_client["tasks"]["tasks"].find_one({"title": task.title})
+    existing_task = db_client["tasks"]["tasks"].find_one({
+        "owner": user["username"],
+        "title": task.title
+        })
     
     if existing_task:
 
@@ -54,7 +68,15 @@ async def new_task(task: Task):
 
     # Add task
     
-    task_dict = dict(task)
+    task_dict = {
+        "owner": user["username"],
+        "title": task.title,
+        "description": task.description,
+        "tags": task.tags,
+        "expire": task.expire
+    }
+
+
     id = db_client["tasks"]["tasks"].insert_one(task_dict).inserted_id
 
     
@@ -64,9 +86,13 @@ async def new_task(task: Task):
 
 # PATCH
 @router.patch("/task/")
-async def modify_date(task_id: str):
+async def modify_date(
+    task_id: str,
+    user: dict = Depends(current_user)
+    ):
 
-    # Find task by Id
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     obj_id = ObjectId(task_id)
 
@@ -85,14 +111,18 @@ async def modify_date(task_id: str):
     {"_id": obj_id},
     {"$set": {"expire": date_tomorrow}})
 
-    return task
+    return {"detail": "Deadline has been updated!"}
 
 
 # DELETE
 @router.delete("/task/{task_id}")
-async def complete_task(task_id: str):
+async def complete_task(
+    task_id: str,
+    user: dict = Depends(current_user)
+    ):
 
-    # Find task by id
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     obj_id = ObjectId(task_id)
 
@@ -104,10 +134,6 @@ async def complete_task(task_id: str):
     
     # Delete task
 
-    db_client["tasks"]["tasks"].delete_one({"_id": obj_id})
+    db_client["tasks"]["tasks"].delete_one({"owner": user["username"]})
 
-
-
-
-
-# ARREGAR EL PATCH (TODOS LOS DEMAS PARECE QUE FUNCIONAN)
+    return {"detail": "Task has been removed!"}
